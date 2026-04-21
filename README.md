@@ -13,7 +13,7 @@ If a format is not supported, the server will automatically attempt to convert i
 
 | Main interface | System monitoring (htop) |
 |----------------|---------------------------|
-| ![Main UI](src/main.jpg) | ![htop](src/htop.jpg) |
+| ![Main UI](src/main.png) | ![htop](src/htop.jpg) |
 
 ## Installation (tested on Debian 12)
 
