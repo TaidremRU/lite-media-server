@@ -48,6 +48,9 @@ All commands must be run as **root** (or with `sudo`).
 6. **Move project to web root**
    ```bash
    cd lite-media-server/
+   rm raw/add.txt
+   rm transmission/add.txt
+   rm video/add.txt
    mv * /var/www/html/
    cd /var/www/html/
    ```
