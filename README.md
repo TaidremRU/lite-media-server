@@ -62,12 +62,14 @@ All commands must be run as **root** (or with `sudo`).
 
 8. **Set correct permissions**
    ```bash
-   chown www-data:www-data /var/www/html/* -R
+   chown www-data:www-data /var/www/html/ -R
    chmod +x /var/www/html/video_converter.sh
    chown -R debian-transmission:debian-transmission /var/www/html/transmission
    chown -R debian-transmission:debian-transmission /var/www/html/raw
    chmod 755 /var/www/html/remove_completed.sh
    chmod 777 /var/www/html/remove.php
+   chmod 666 /var/www/html/timeline.php
+   touch /var/www/html/timeline.json
    ```
 
 9. **Stop transmission daemon**
@@ -79,8 +81,7 @@ All commands must be run as **root** (or with `sudo`).
    ```bash
    nano /etc/transmission-daemon/settings.json
    ```
-
-   **Set the following values (adjust as needed):**
+   Set the following values (adjust as needed):
    ```json
    "download-dir": "/var/www/html/raw"
    "incomplete-dir": "/var/www/html/transmission"
@@ -120,6 +121,21 @@ After reboot, the server is ready. Open your browser and navigate to `http://you
 Default Transmission RPC credentials:
 Username: `media`
 Password: `lite`
+
+## Possibilities
+
+ - v 0.2
+ * Saving timecodes and highlighting in the UI
+ * Added filter for .tmp files
+ * Some Fixes
+
+ - v 0.1
+ * Watching videos in HTML5
+ * Downloading videos using Transmission
+ * Auto Convert to MP4 from Unsupported Formats
+ * Free space counter
+ * Removing a video/directory from the interface
+ * Support for RU/EN languages
 
 ## Notes & Recommendations
 

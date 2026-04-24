@@ -497,6 +497,19 @@
             text-transform: uppercase;
         }
 
+        .timeline-icon {
+            background: #5c9eff;
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 40px;
+            color: #1a1a2a;
+            font-weight: bold;
+            cursor: help;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
         .footer {
             padding: 0.8rem 1.5rem;
             text-align: center;
@@ -598,13 +611,13 @@
     </div>
 
     <div class="footer">
-        <span data-i18n="version">Lite Media Server — версия 0.1</span>
+        <span data-i18n="version">Lite Media Server — версия 0.2</span>
     </div>
 </div>
 
 <script>
     (function() {
-        // --- Локализация ---
+        // --- Локализация (версия 0.2) ---
         const translations = {
             ru: {
                 placeholder_text: "Выберите видео из списка ниже",
@@ -640,7 +653,7 @@
                 msg_select_video: "— не выбрано —",
                 msg_file_not_found: "Файл не найден",
                 msg_download_hint: "Скачать файл",
-                version: "Lite Media Server — версия 0.1",
+                version: "Lite Media Server — версия 0.2",
                 delete_file_confirm: "Вы действительно хотите удалить файл \"{name}\"? Это действие необратимо.",
                 delete_folder_confirm: "Вы действительно хотите удалить папку \"{name}\" со всем содержимым? Это действие необратимо.",
                 delete_success: "Удалено успешно",
@@ -695,7 +708,7 @@
                 msg_select_video: "— not selected —",
                 msg_file_not_found: "File not found",
                 msg_download_hint: "Download file",
-                version: "Lite Media Server — version 0.1",
+                version: "Lite Media Server — version 0.2",
                 delete_file_confirm: "Are you sure you want to delete the file \"{name}\"? This action is irreversible.",
                 delete_folder_confirm: "Are you sure you want to delete the folder \"{name}\" with all its contents? This action is irreversible.",
                 delete_success: "Deleted successfully",
@@ -761,6 +774,7 @@
         // --- Настройки ---
         const ROOT_FOLDER_TO_SKIP = "video";
         const SUPPORTED_EXTENSIONS = ['mp4', 'm4v', 'mov', 'webm', 'ogg', 'ogv'];
+        const IGNORED_EXTENSIONS = ['tmp', 'png']; // расширения, которые игнорируются и не показываются
         
         function isFormatSupported(filePath) {
             const ext = filePath.split('.').pop().toLowerCase();
@@ -770,12 +784,109 @@
         function getFileExtension(filePath) {
             return filePath.split('.').pop().toLowerCase();
         }
+        
+        function isIgnoredExtension(filePath) {
+            const ext = getFileExtension(filePath);
+            return IGNORED_EXTENSIONS.includes(ext);
+        }
 
         // --- состояние ---
         let videoItemsArray = [];
         let currentVideoPath = null;
         let currentDisplayName = "";
         let torrentRefreshInterval = null;
+        
+        // --- Timeline state ---
+        let timelinesMap = new Map(); // name -> time (seconds)
+        let timelineSaveInterval = null;
+        let currentTimelineVideoName = null;
+        
+        // --- Timeline API functions ---
+        async function saveTimelineToServer(videoName, time) {
+            if (!videoName) return;
+            try {
+                const url = `/timeline.php?add&name=${encodeURIComponent(videoName)}&time=${Math.floor(time)}`;
+                await fetch(url, { method: 'GET', cache: 'no-cache' });
+            } catch (err) {
+                console.warn('Save timeline error:', err);
+            }
+        }
+        
+        async function getTimelineFromServer(videoName) {
+            if (!videoName) return 0;
+            try {
+                const resp = await fetch(`/timeline.php?get&name=${encodeURIComponent(videoName)}`, { cache: 'no-cache' });
+                if (!resp.ok) return 0;
+                const data = await resp.json();
+                return data.time ? Number(data.time) : 0;
+            } catch (err) {
+                console.warn('Get timeline error:', err);
+                return 0;
+            }
+        }
+        
+        async function getAllTimelines() {
+            try {
+                const resp = await fetch('/timeline.php?getall', { cache: 'no-cache' });
+                if (!resp.ok) return [];
+                const data = await resp.json();
+                if (Array.isArray(data)) return data;
+                return [];
+            } catch (err) {
+                console.warn('Get all timelines error:', err);
+                return [];
+            }
+        }
+        
+        async function deleteTimelineFromServer(videoName) {
+            if (!videoName) return;
+            try {
+                await fetch(`/timeline.php?del&name=${encodeURIComponent(videoName)}`, { method: 'GET', cache: 'no-cache' });
+            } catch (err) {
+                console.warn('Delete timeline error:', err);
+            }
+        }
+        
+        async function refreshTimelinesMap() {
+            const all = await getAllTimelines();
+            const newMap = new Map();
+            for (const item of all) {
+                if (item.name && typeof item.time === 'number') {
+                    newMap.set(item.name, item.time);
+                }
+            }
+            timelinesMap = newMap;
+        }
+        
+        // --- Timeline auto-save logic ---
+        function startTimelineSaving(videoName) {
+            stopTimelineSaving();
+            if (!videoName) return;
+            currentTimelineVideoName = videoName;
+            timelineSaveInterval = setInterval(() => {
+                if (currentTimelineVideoName === videoName && videoPlayer && !videoPlayer.paused && !videoPlayer.ended && videoPlayer.readyState >= 2) {
+                    const currentTime = videoPlayer.currentTime;
+                    if (currentTime > 0 && isFinite(currentTime)) {
+                        saveTimelineToServer(videoName, currentTime);
+                    }
+                }
+            }, 10000); // каждые 10 секунд
+        }
+        
+        function stopTimelineSaving() {
+            if (timelineSaveInterval) {
+                clearInterval(timelineSaveInterval);
+                timelineSaveInterval = null;
+            }
+            currentTimelineVideoName = null;
+        }
+        
+        // Сохраняем перед закрытием страницы
+        window.addEventListener('beforeunload', () => {
+            if (currentTimelineVideoName && videoPlayer && !videoPlayer.paused && !videoPlayer.ended && videoPlayer.currentTime > 0) {
+                saveTimelineToServer(currentTimelineVideoName, videoPlayer.currentTime);
+            }
+        });
 
         // --- Torrent функции ---
         async function fetchDiskInfo() {
@@ -910,7 +1021,7 @@
             }
         }
 
-        // --- Остальные функции (видео, библиотека, удаление) ---
+        // --- Видео и удаление (с удалением timeline) ---
         async function deleteItem(path, isFolder = false, nameForConfirm) {
             const confirmMessage = isFolder 
                 ? t('delete_folder_confirm', { name: nameForConfirm })
@@ -919,6 +1030,20 @@
             try {
                 const response = await fetch(`/remove.php?link=${encodeURIComponent(path)}`);
                 if (!response.ok) throw new Error(await response.text());
+                
+                // Удаляем timeline для этого видео/папки (для папки можно удалить все внутри, но проще удалить по имени файла)
+                if (!isFolder) {
+                    await deleteTimelineFromServer(path);
+                    timelinesMap.delete(path);
+                } else {
+                    // Для папки: удаляем все timeline для файлов внутри (пробегаем по videoItemsArray)
+                    const filesToDelete = videoItemsArray.filter(v => v.path.startsWith(path + '/') || v.path === path);
+                    for (const file of filesToDelete) {
+                        await deleteTimelineFromServer(file.path);
+                        timelinesMap.delete(file.path);
+                    }
+                }
+                
                 showStatusMessage(t('delete_success'), false);
                 await fetchVideoList();
                 await fetchDiskInfo();
@@ -926,6 +1051,7 @@
                     resetVideoAreaToPlaceholder();
                     currentVideoPath = null;
                     currentDisplayName = "";
+                    stopTimelineSaving();
                 }
             } catch (err) {
                 showStatusMessage(t('delete_error', { error: err.message }), true);
@@ -1053,6 +1179,7 @@
             downloadCurrentBtn.classList.add('hidden');
             const placeholderText = videoPlaceholder.querySelector('.video-placeholder-text');
             if (placeholderText) placeholderText.textContent = t('placeholder_text');
+            stopTimelineSaving();
         }
 
         function showStatusMessage(text, isError = false) {
@@ -1099,7 +1226,8 @@
                 currentNode.files.push({
                     path: path,
                     displayName: fileName,
-                    ext: getFileExtension(path)
+                    ext: getFileExtension(path),
+                    time: timelinesMap.get(path) || 0
                 });
             }
             return root;
@@ -1118,9 +1246,23 @@
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'video-filename';
                 nameSpan.textContent = file.displayName;
+                
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'video-actions';
+                
                 const formatSpan = document.createElement('span');
                 formatSpan.className = 'format-badge';
                 formatSpan.textContent = file.ext.toUpperCase();
+                actionsDiv.appendChild(formatSpan);
+                
+                // Показываем иконку таймлайна, если видео уже открывали (time > 0)
+                if (file.time > 0) {
+                    const timelineIcon = document.createElement('span');
+                    timelineIcon.className = 'timeline-icon';
+                    timelineIcon.innerHTML = '⏱️';
+                    timelineIcon.title = `Продолжить с ${Math.floor(file.time / 60)}:${(file.time % 60).toString().padStart(2,'0')}`;
+                    actionsDiv.appendChild(timelineIcon);
+                }
                 
                 const deleteBtn = document.createElement('button');
                 deleteBtn.className = 'delete-btn';
@@ -1130,10 +1272,6 @@
                     e.stopPropagation();
                     await deleteItem(file.path, false, file.displayName);
                 });
-                
-                const actionsDiv = document.createElement('div');
-                actionsDiv.className = 'video-actions';
-                actionsDiv.appendChild(formatSpan);
                 actionsDiv.appendChild(deleteBtn);
                 
                 fileDiv.appendChild(iconSpan);
@@ -1242,6 +1380,9 @@
             currentVideoPath = videoPath;
             currentDisplayName = displayName;
             
+            // Получаем сохраненное время и устанавливаем
+            const savedTime = await getTimelineFromServer(videoPath);
+            
             downloadCurrentBtn.classList.remove('hidden');
             downloadCurrentBtn.innerHTML = t('btn_download');
             downloadCurrentBtn.onclick = () => {
@@ -1252,6 +1393,7 @@
             if (!isFormatSupported(videoPath)) {
                 showUnsupportedUI(videoPath, displayName);
                 updateActiveClassByPath();
+                stopTimelineSaving();
                 return;
             }
             showVideoPlayerUI();
@@ -1262,14 +1404,28 @@
             videoPlayer.load();
             videoPlayer.src = encodedSrc;
             videoPlayer.load();
+            
+            // Устанавливаем таймлайн после загрузки метаданных
+            const onLoadedMetadata = () => {
+                if (savedTime > 0 && savedTime < videoPlayer.duration) {
+                    videoPlayer.currentTime = savedTime;
+                    showStatusMessage(`⏱️ Продолжаем с ${Math.floor(savedTime / 60)}:${(savedTime % 60).toString().padStart(2,'0')}`, false);
+                }
+                videoPlayer.removeEventListener('loadedmetadata', onLoadedMetadata);
+            };
+            videoPlayer.addEventListener('loadedmetadata', onLoadedMetadata);
+            
             try {
                 await videoPlayer.play();
                 showStatusMessage(t('status_playing', { name: displayName }), false);
                 updateActiveClassByPath();
+                // Запускаем автосохранение таймлайна
+                startTimelineSaving(videoPath);
             } catch (playError) {
                 let msg = t('status_autoplay_blocked');
                 if (playError.name === 'NotSupportedError') msg = t('status_codec_error');
                 showStatusMessage(msg, true);
+                startTimelineSaving(videoPath);
             }
             const handleVideoError = () => {
                 const errCode = videoPlayer.error?.code;
@@ -1279,6 +1435,7 @@
                 showStatusMessage(errorText, true);
                 showUnsupportedUI(videoPath, displayName);
                 videoPlayer.removeEventListener('error', handleVideoError);
+                stopTimelineSaving();
             };
             videoPlayer.addEventListener('error', handleVideoError, { once: true });
         }
@@ -1293,7 +1450,9 @@
                 if (!data || !Array.isArray(data.video)) {
                     throw new Error(t('api_invalid_format', { field: 'video' }));
                 }
-                const raw = data.video;
+                let raw = data.video;
+                // Фильтруем игнорируемые расширения
+                raw = raw.filter(fullPath => !isIgnoredExtension(fullPath));
                 if (!raw.length) {
                     videoItemsArray = [];
                     renderFullTree();
@@ -1301,6 +1460,8 @@
                     return;
                 }
                 videoItemsArray = raw.map(fullPath => ({ path: fullPath, displayName: fullPath }));
+                // Загружаем все таймлайны для отображения иконок
+                await refreshTimelinesMap();
                 renderFullTree();
                 showStatusMessage(t('status_ready'), false);
                 if (currentVideoPath && !videoItemsArray.some(v => v.path === currentVideoPath)) {
@@ -1337,7 +1498,7 @@
             setLanguage(newLang);
         }
         
-        // --- ИНИЦИАЛИЗАЦИЯ (исправленный init с автообновлением) ---
+        // --- ИНИЦИАЛИЗАЦИЯ ---
         async function init() {
             const savedLang = localStorage.getItem('player_lang');
             if (savedLang && (savedLang === 'ru' || savedLang === 'en')) {
@@ -1350,7 +1511,6 @@
             videoPlayer.addEventListener('play', onVideoPlay);
             toggleLibraryBtn.addEventListener('click', toggleLibrary);
             
-            // Исправленный обработчик кнопки торрентов с запуском/остановкой интервала
             if (toggleTorrentBtn && torrentPanel) {
                 toggleTorrentBtn.addEventListener('click', () => {
                     const isHidden = torrentPanel.classList.contains('hidden-torrent');
@@ -1359,15 +1519,13 @@
                         toggleTorrentBtn.innerHTML = t('btn_toggle_torrent_hide');
                         fetchDiskInfo();
                         fetchTorrents();
-                        startTorrentRefresh();   // запускаем автообновление
+                        startTorrentRefresh();
                     } else {
                         torrentPanel.classList.add('hidden-torrent');
                         toggleTorrentBtn.innerHTML = t('btn_toggle_torrent_show');
-                        stopTorrentRefresh();    // останавливаем
+                        stopTorrentRefresh();
                     }
                 });
-            } else {
-                console.error('Torrent elements not found!');
             }
             
             refreshBtn.addEventListener('click', async () => {
@@ -1386,7 +1544,6 @@
             
             resetVideoAreaToPlaceholder();
             await fetchVideoList();
-            // Панель торрентов по умолчанию скрыта, интервал не запущен
         }
         
         init();
